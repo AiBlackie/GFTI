@@ -1,0 +1,12 @@
+Country,Region,GFTI_Score,SP_Rating,SP_Numeric,Bond_Yield,Yield_Type,Debt_GDP,GDP_Growth,Inflation,Audit_Opinion,Key_Issue,SOE_Consolidated,Pension_Recorded,Report_File
+Barbados,Caribbean,18,B+,14,8,Govt 10Y,102.9,4.2,4.5,Adverse,"$2.43B unverified receivables, $719M asset discrepancy",No,No,
+Jamaica,Caribbean,55,BB,11,7.625,Govt 10Y,75,2.5,5,Unqualified (entity),464 statements outstanding,Partial,Yes,
+Trinidad,Caribbean,15,BBB-,8,6.4,Govt 10Y,55,2,3.5,Disclaimer,Central Bank blocked audit,No,Partial,
+Guyana,Caribbean,48,B+,14,4.5,Estimate,30,30,5.5,Qualified,$1.011B overpayments identified,Partial,Partial,
+Kenya,Africa,32,B,15,13.13,Govt 10Y,70,5,6,Qualified,Governance concerns,Partial,Partial,
+Ghana,Africa,35,B-,16,15.5,Govt 10Y,85,2,40,Qualified,"Debt crisis, currency issues",No,No,
+Pakistan,Asia,,B-,16,11.21,Govt 10Y,77,3,12,Unknown,Political instability,Unknown,Unknown,
+South Africa,Africa,92,BB,11,7.92,Govt 10Y,75,1,4.5,Unqualified,"Eskom crisis, low growth",Partial,Yes,
+Rwanda,Africa,72,B+,14,9,Eurobond,65,7,5,Unqualified,"Small economy, landlocked",Yes,Yes,
+United Kingdom,Europe,92,AA,3,4.5,Govt 10Y,97.1,0.5,3.5,Unqualified,"Local government audit crisis - 50% disclaimed, 1% on time",Partial,Yes,GFTI UK country report 2025.txt
+Bermuda,Caribbean,42,A+,5,4.39,Govt 10Y,35,1.9,2.2,Qualified,Unsupported Asset Retirement Obligations ($37.9M),NO,YES,
