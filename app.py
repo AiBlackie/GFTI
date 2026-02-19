@@ -1604,49 +1604,63 @@ with col3:
     st.metric("Expected (Rating + GFTI)", f"{exp_gfti:.2f}%")
 
 with col4:
+    # Show the Trust Tax based on the default yield
+    default_yield = 5.0
+    default_trust_tax = default_yield - exp_gfti
     st.metric(
-        "Trust Tax Impact (vs actual)",
-        "Enter actual yield below",
-        delta=None
+        "Trust Tax (vs 5% yield)",
+        f"{default_trust_tax:+.2f}%",
+        delta=None,
+        help="Trust Tax if actual yield were 5%"
     )
 
 st.markdown("### Enter Actual Bond Yield to Calculate Trust Tax")
 col1, col2 = st.columns(2)
 with col1:
-    actual_yield_input = st.number_input("Actual Bond Yield (%)", min_value=0.0, max_value=30.0, value=exp_rating, step=0.1, format="%.2f")
+    actual_yield_input = st.number_input(
+        "Actual Bond Yield (%)", 
+        min_value=0.0, 
+        max_value=30.0, 
+        value=exp_rating,  # Use the rating-based expected yield as default
+        step=0.1, 
+        format="%.2f",
+        key="actual_yield_calc"
+    )
 
-if actual_yield_input:
-    trust_tax_calc = actual_yield_input - exp_gfti
-    trust_tax_bps_calc = trust_tax_calc * 100
-    annual_cost = abs(trust_tax_bps_calc / 100 * 10)
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        tax_color = "#DC2626" if trust_tax_calc > 0 else "#10B981" if trust_tax_calc < 0 else "#666"
-        st.markdown(f"<h3 style='color: {tax_color};'>{trust_tax_calc:+.2f}%</h3>", unsafe_allow_html=True)
-        st.caption("Trust Tax (%)")
-    
-    with col2:
-        st.markdown(f"<h3 style='color: {tax_color};'>{trust_tax_bps_calc:+.0f} bps</h3>", unsafe_allow_html=True)
-        st.caption("Trust Tax (basis points)")
-    
-    with col3:
-        st.markdown(f"<h3>${annual_cost:.1f}M</h3>", unsafe_allow_html=True)
-        st.caption("Annual Cost on $1B Debt")
+# Calculate and display results
+trust_tax_calc = actual_yield_input - exp_gfti
+trust_tax_bps_calc = trust_tax_calc * 100
+annual_cost = abs(trust_tax_bps_calc / 100 * 10)
 
-    st.markdown(f"""
-    <div class="card" style="text-align: center;">
-        <h4>Interpretation:</h4>
-        <p>
-        <strong>{'+' if trust_tax_calc > 0 else '-' if trust_tax_calc < 0 else 'No '}Trust Tax</strong><br>
-        {f'This country pays <span style="color: #DC2626;">{trust_tax_bps_calc:.0f} bps MORE</span> than its transparency suggests.' if trust_tax_calc > 0 else 
-          f'This country pays <span style="color: #10B981;">{abs(trust_tax_bps_calc):.0f} bps LESS</span> than its transparency suggests.' if trust_tax_calc < 0 else 
-          'This country pays exactly what its transparency suggests.'}
-        </p>
-        <p><em>Note: This is a preliminary model using 5bps per GFTI point adjustment from the 50-point baseline.</em></p>
-    </div>
-    """, unsafe_allow_html=True)
+# Display results in columns
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    tax_color = "#DC2626" if trust_tax_calc > 0 else "#10B981" if trust_tax_calc < 0 else "#666"
+    st.markdown(f"<h3 style='color: {tax_color};'>{trust_tax_calc:+.2f}%</h3>", unsafe_allow_html=True)
+    st.caption("Trust Tax (%)")
+
+with col2:
+    st.markdown(f"<h3 style='color: {tax_color};'>{trust_tax_bps_calc:+.0f} bps</h3>", unsafe_allow_html=True)
+    st.caption("Trust Tax (basis points)")
+
+with col3:
+    st.markdown(f"<h3>${annual_cost:.1f}M</h3>", unsafe_allow_html=True)
+    st.caption("Annual Cost on $1B Debt")
+
+# Interpretation card
+st.markdown(f"""
+<div class="card" style="text-align: center;">
+    <h4>Interpretation:</h4>
+    <p>
+    <strong>{'+' if trust_tax_calc > 0 else '-' if trust_tax_calc < 0 else 'No '}Trust Tax</strong><br>
+    {f'This country pays <span style="color: #DC2626;">{trust_tax_bps_calc:.0f} bps MORE</span> than its transparency suggests.' if trust_tax_calc > 0 else 
+      f'This country pays <span style="color: #10B981;">{abs(trust_tax_bps_calc):.0f} bps LESS</span> than its transparency suggests.' if trust_tax_calc < 0 else 
+      'This country pays exactly what its transparency suggests.'}
+    </p>
+    <p><em>Note: This is a preliminary model using 5bps per GFTI point adjustment from the 50-point baseline.</em></p>
+</div>
+""", unsafe_allow_html=True)
 
 # ============================================================================
 # DATA QUALITY ISSUES
