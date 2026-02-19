@@ -1222,7 +1222,8 @@ display_cols = [
 display_df = filtered_df[display_cols].copy()
 display_df['GFTI_Score'] = display_df['GFTI_Score'].fillna(0).astype(int)
 display_df['Bond_Yield'] = display_df['Bond_Yield'].round(2)
-display_df['Trust_Tax_bps'] = display_df['Trust_Tax_bps'].round(0).astype(int)
+# FIXED: Remove .astype(int) - keep as float to handle NaN
+display_df['Trust_Tax_bps'] = display_df['Trust_Tax_bps'].round(0)
 display_df.columns = [
     'Country', 'Region', 'GFTI', 'Grade',
     'S&P', 'Yield %', 'Trust Tax (bps)'
@@ -1525,7 +1526,8 @@ if not filtered_df.empty:
         ]
         
         compare_display = compare_df[compare_cols].copy()
-        compare_display['Trust_Tax_bps'] = compare_display['Trust_Tax_bps'].round(0).astype(int)
+        # FIXED: Round Trust Tax but keep as float (don't convert to int)
+        compare_display['Trust_Tax_bps'] = compare_display['Trust_Tax_bps'].round(0)
         compare_display.columns = [
             'Country', 'GFTI', 'Grade', 'S&P', 
             'Yield %', 'Trust Tax', 'Cost on $1B',
