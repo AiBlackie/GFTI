@@ -393,25 +393,24 @@ def load_data():
     df['GFTI_Grade'] = df['GFTI_Score'].apply(get_grade_from_score)
 
     # ============================================================================
-    # REVISED TRUST TAX CALCULATION (More Intuitive)
+    # REVISED TRUST TAX CALCULATION (Simpler but More Honest)
     # ============================================================================
     # Step 1: Expected yield based on S&P rating only
-    # Base: 2.5% + (rating_num * 0.35%) - this is a simplified model
-    df['Expected_Rating_Only'] = 2.5 + (df['SP_Numeric'] * 0.35)
+    # Base rate: 3.0% (more realistic risk-free floor)
+    # Rating impact: 0.25% per rating notch (more conservative)
+    df['Expected_Rating_Only'] = 3.0 + (df['SP_Numeric'] * 0.25)
     
     # Step 2: Calculate the GFTI adjustment factor
-    # We use 50 as the baseline (average transparency)
-    # For every 10 points above 50, yield should be 0.5% LOWER
-    # For every 10 points below 50, yield should be 0.5% HIGHER
-    # This is a 5bps per point adjustment (more conservative than 10bps)
-    df['GFTI_Adjustment'] = ((50 - df['GFTI_Score'].fillna(50)) * 0.05)
+    # More conservative: 2bps per point (0.02%) instead of 5bps
+    # Range: At GFTI 100 → -1.0%, At GFTI 0 → +1.0%
+    df['GFTI_Adjustment'] = ((50 - df['GFTI_Score'].fillna(50)) * 0.02)
     
     # Step 3: Expected yield incorporating transparency
     df['Expected_Rating_GFTI'] = df['Expected_Rating_Only'] + df['GFTI_Adjustment']
     
     # Step 4: Trust Tax = Actual - Expected (with GFTI)
-    # Positive = Paying MORE than transparency suggests (bad)
-    # Negative = Paying LESS than transparency suggests (could be opportunity or other factors)
+    # Positive = Paying MORE than transparency suggests
+    # Negative = Paying LESS than transparency suggests
     df['Trust_Tax_bps'] = (df['Bond_Yield'] - df['Expected_Rating_GFTI']) * 100
     df['Trust_Tax_bps'] = df['Trust_Tax_bps'].round(1)
 
@@ -419,12 +418,14 @@ def load_data():
     df['Annual_Cost_1B'] = (df['Trust_Tax_bps'] / 100) * 10  # $10M per 100bps on $1B
     df['Annual_Cost_1B'] = df['Annual_Cost_1B'].round(1)
     
-    # Add coordinates for mapping
-    df['lat'] = df['Country'].apply(lambda x: get_country_coordinates(x)['lat'])
-    df['lon'] = df['Country'].apply(lambda x: get_country_coordinates(x)['lon'])
-
+    # Step 5: Add a reality check note for developed markets
+    developed_regions = ['Europe', 'North America', 'Pacific']
+    df['Model_Note'] = df.apply(lambda row: 
+        "⚠️ **Note for developed markets:** Bond yields here are heavily influenced by central bank rates, inflation expectations, and safe-haven status. The Trust Tax shown may reflect these broader economic factors rather than just transparency." 
+        if row['Region'] in developed_regions and row['GFTI_Score'] > 70 
+        else "", axis=1)
+    # ADD THIS RETURN STATEMENT
     return df
-
 
 # ============================================================================
 # CSV TEMPLATE GENERATOR
@@ -457,25 +458,36 @@ def generate_csv_template():
 def generate_country_report(country_data):
     """Generate a formatted country report similar to the UK example"""
     
-    country = country_data['Country']
-    score = country_data['GFTI_Score']
-    grade = country_data['GFTI_Grade']
-    region = country_data['Region']
-    sp_rating = country_data['SP_Rating']
-    bond_yield = country_data['Bond_Yield']
-    trust_tax = country_data['Trust_Tax_bps']
-    annual_cost = country_data['Annual_Cost_1B']
-    audit_opinion = country_data['Audit_Opinion']
-    key_issue = country_data['Key_Issue']
-    debt_gdp = country_data['Debt_GDP']
-    gdp_growth = country_data['GDP_Growth']
-    inflation = country_data['Inflation']
-    exp_rating = country_data['Expected_Rating_Only']
-    exp_gfti = country_data['Expected_Rating_GFTI']
-    gfti_adjust = country_data['GFTI_Adjustment']
+    # Helper function to safely get values
+    def safe_get(value, default=0, format_as=None):
+        if pd.isna(value) or value is None:
+            return default if format_as is None else format_as.format(default)
+        return value
+    
+    def safe_str(value, default="N/A"):
+        if pd.isna(value) or value is None:
+            return default
+        return str(value)
+    
+    country = safe_str(country_data.get('Country', 'Unknown'))
+    score = safe_get(country_data.get('GFTI_Score'), 0)
+    grade = safe_str(country_data.get('GFTI_Grade'), 'N/A')
+    region = safe_str(country_data.get('Region'), 'Unknown')
+    sp_rating = safe_str(country_data.get('SP_Rating'), 'N/A')
+    bond_yield = safe_get(country_data.get('Bond_Yield'), 0)
+    trust_tax = safe_get(country_data.get('Trust_Tax_bps'), 0)
+    annual_cost = safe_get(country_data.get('Annual_Cost_1B'), 0)
+    audit_opinion = safe_str(country_data.get('Audit_Opinion'), 'Unknown')
+    key_issue = safe_str(country_data.get('Key_Issue'), 'No key issues identified')
+    debt_gdp = safe_get(country_data.get('Debt_GDP'), 0)
+    gdp_growth = safe_get(country_data.get('GDP_Growth'), 0)
+    inflation = safe_get(country_data.get('Inflation'), 0)
+    exp_rating = safe_get(country_data.get('Expected_Rating_Only'), 0)
+    exp_gfti = safe_get(country_data.get('Expected_Rating_GFTI'), 0)
+    gfti_adjust = safe_get(country_data.get('GFTI_Adjustment'), 0)
     
     # Get grade description
-    grade_desc = get_grade_description(grade)
+    grade_desc = get_grade_description(grade) if grade != 'N/A' else 'Unknown'
     
     # Format the report
     report = f"""# GFTI COUNTRY REPORT: {country.upper()} {datetime.now().year}
@@ -490,16 +502,16 @@ This report applies the GFTI methodology to {country}'s public financial reporti
 
 | Metric | Value |
 |--------|-------|
-| **GFTI Score** | {score}/100 |
+| **GFTI Score** | {score:.0f}/100 |
 | **GFTI Grade** | {grade} - {grade_desc} |
 | **Region** | {region} |
 | **S&P Credit Rating** | {sp_rating} |
-| **10-Year Bond Yield** | {bond_yield}% |
-| **Trust Tax** | {trust_tax} bps |
-| **Annual Cost on $1B Debt** | ${annual_cost}M |
-| **Debt/GDP** | {debt_gdp}% |
-| **GDP Growth** | {gdp_growth}% |
-| **Inflation** | {inflation}% |
+| **10-Year Bond Yield** | {bond_yield:.2f}% |
+| **Trust Tax** | {trust_tax:+.0f} bps |
+| **Annual Cost on $1B Debt** | ${annual_cost:.1f}M |
+| **Debt/GDP** | {debt_gdp:.1f}% |
+| **GDP Growth** | {gdp_growth:.1f}% |
+| **Inflation** | {inflation:.1f}% |
 | **Audit Opinion** | {audit_opinion} |
 
 ---
@@ -514,12 +526,12 @@ This report applies the GFTI methodology to {country}'s public financial reporti
 
 | Dimension | Score | Grade | Key Findings |
 |-----------|-------|-------|--------------|
-| **Audit Quality** | **{score-5 if score > 20 else score}/25** | {grade} | Based on audit opinion: {audit_opinion} |
-| **Data Integrity** | **{score-5 if score > 20 else score-2}/25** | {grade} | Transparency of financial data |
-| **IPSAS/IFRS Compliance** | **{score-3 if score > 20 else score-1}/20** | {grade} | Accounting standards adherence |
-| **Disclosure Completeness** | **{score-2 if score > 20 else score}/15** | {grade} | Completeness of disclosures |
-| **Historical Consistency** | **{score-5 if score > 20 else score-3}/15** | {grade} | Year-over-year reporting quality |
-| **TOTAL** | **{score}/100** | **{grade}** | |
+| **Audit Quality** | **{max(0, score-5) if score > 20 else score:.0f}/25** | {grade} | Based on audit opinion: {audit_opinion} |
+| **Data Integrity** | **{max(0, score-5) if score > 20 else max(0, score-2):.0f}/25** | {grade} | Transparency of financial data |
+| **IPSAS/IFRS Compliance** | **{max(0, score-3) if score > 20 else max(0, score-1):.0f}/20** | {grade} | Accounting standards adherence |
+| **Disclosure Completeness** | **{max(0, score-2) if score > 20 else score:.0f}/15** | {grade} | Completeness of disclosures |
+| **Historical Consistency** | **{max(0, score-5) if score > 20 else max(0, score-3):.0f}/15** | {grade} | Year-over-year reporting quality |
+| **TOTAL** | **{score:.0f}/100** | **{grade}** | |
 
 ---
 
@@ -529,12 +541,12 @@ The Trust Tax measures whether investors charge a premium (or discount) due to t
 
 | Calculation | Value |
 |-------------|-------|
-| Actual Bond Yield | {bond_yield}% |
+| Actual Bond Yield | {bond_yield:.2f}% |
 | Expected Yield (S&P Rating Only) | {exp_rating:.2f}% |
 | Transparency Adjustment (GFTI impact) | {gfti_adjust:+.2f}% |
 | Expected Yield (S&P + GFTI) | {exp_gfti:.2f}% |
 | **Trust Tax (bps)** | **{trust_tax:+.0f} bps** |
-| **Annual Cost on $1B Debt** | **${annual_cost}M** |
+| **Annual Cost on $1B Debt** | **${annual_cost:.1f}M** |
 
 **Interpretation:** 
 - **Positive Trust Tax (+)** = Country pays MORE than its transparency suggests (penalized by markets)
@@ -548,11 +560,11 @@ The Trust Tax measures whether investors charge a premium (or discount) due to t
 
 | Metric | {country} | Regional Avg | Global Avg |
 |--------|-----------|--------------|------------|
-| GFTI Score | {score} | {score-5:.0f} | 50 |
-| Bond Yield | {bond_yield}% | {bond_yield+1:.2f}% | 6.5% |
-| Debt/GDP | {debt_gdp}% | {debt_gdp-5:.1f}% | 65% |
-| GDP Growth | {gdp_growth}% | {gdp_growth-1:.1f}% | 3.0% |
-| Inflation | {inflation}% | {inflation+1:.1f}% | 4.0% |
+| GFTI Score | {score:.0f} | {max(0, score-5):.0f} | 50 |
+| Bond Yield | {bond_yield:.2f}% | {bond_yield+1:.2f}% | 6.5% |
+| Debt/GDP | {debt_gdp:.1f}% | {max(0, debt_gdp-5):.1f}% | 65% |
+| GDP Growth | {gdp_growth:.1f}% | {max(0, gdp_growth-1):.1f}% | 3.0% |
+| Inflation | {inflation:.1f}% | {inflation+1:.1f}% | 4.0% |
 
 ---
 
@@ -564,11 +576,11 @@ The Trust Tax measures whether investors charge a premium (or discount) due to t
         report += f"""
 ✅ **Strong audit framework** - {audit_opinion} opinion indicates reliable reporting
 ✅ **Transparent disclosures** - Grade {grade} reflects comprehensive reporting
-✅ **Market confidence** - Bond yield of {bond_yield}% suggests reasonable investor trust
+✅ **Market confidence** - Bond yield of {bond_yield:.2f}% suggests reasonable investor trust
 """
     else:
         report += f"""
-⚠️ **Limited strengths** - Score {score} indicates significant transparency challenges
+⚠️ **Limited strengths** - Score {score:.0f} indicates significant transparency challenges
 """
 
     report += f"""
@@ -590,15 +602,15 @@ The Trust Tax measures whether investors charge a premium (or discount) due to t
 """
     if trust_tax > 50:
         report += f"""
-❌ **Significant Trust Tax** (+{trust_tax} bps) - Markets are penalizing {country} for transparency concerns, costing ${annual_cost}M annually per $1B debt.
+❌ **Significant Trust Tax** (+{trust_tax:.0f} bps) - Markets are penalizing {country} for transparency concerns, costing ${annual_cost:.1f}M annually per $1B debt.
 """
     elif trust_tax < -50:
         report += f"""
-✅ **Negative Trust Tax** ({trust_tax} bps) - {country} pays LESS than its transparency suggests. This could represent an opportunity or indicate other factors outweigh transparency concerns.
+✅ **Negative Trust Tax** ({trust_tax:.0f} bps) - {country} pays LESS than its transparency suggests. This could represent an opportunity or indicate other factors outweigh transparency concerns.
 """
     else:
         report += f"""
-ℹ️ **Neutral Trust Tax** ({trust_tax} bps) - Markets are broadly aligned with {country}'s transparency profile.
+ℹ️ **Neutral Trust Tax** ({trust_tax:.0f} bps) - Markets are broadly aligned with {country}'s transparency profile.
 """
 
     report += f"""
@@ -635,7 +647,7 @@ The Trust Tax measures whether investors charge a premium (or discount) due to t
 
 ## DISCLAIMER
 
-This report is generated by the Global Financial Transparency Index (GFTI) using publicly available information. All findings are verifiable from original sources. The Trust Tax calculation uses a preliminary model: 5bps per GFTI point adjustment from the 50-point baseline. This model will be refined as more data becomes available.
+This report is generated by the Global Financial Transparency Index (GFTI) using publicly available information. All findings are verifiable from original sources. The Trust Tax calculation uses a simplified model: 3.0% base + 0.25% per rating notch + 2bps per GFTI point adjustment.
 
 ---
 
@@ -870,6 +882,35 @@ def create_gfti_world_map(df, metric='GFTI_Score', title="Global Financial Trans
 # ============================================================================
 df = load_data()
 
+# Ensure df is not None and has data
+if df is None or len(df) == 0:
+    st.error("❌ Failed to load data. Using emergency fallback data.")
+    df = load_fallback_data()
+
+# Add coordinates for mapping (do this for ALL data, not just fallback)
+if 'lat' not in df.columns or 'lon' not in df.columns:
+    df['lat'] = df['Country'].apply(lambda x: get_country_coordinates(x)['lat'])
+    df['lon'] = df['Country'].apply(lambda x: get_country_coordinates(x)['lon'])
+
+# Ensure required columns exist
+required_columns = ['Country', 'Region', 'GFTI_Score', 'GFTI_Grade', 'SP_Rating', 
+                    'SP_Numeric', 'Bond_Yield', 'Trust_Tax_bps', 'Annual_Cost_1B',
+                    'Debt_GDP', 'GDP_Growth', 'Inflation', 'Audit_Opinion', 
+                    'Key_Issue', 'SOE_Consolidated', 'Pension_Recorded', 
+                    'Expected_Rating_Only', 'Expected_Rating_GFTI', 'GFTI_Adjustment',
+                    'lat', 'lon']
+
+for col in required_columns:
+    if col not in df.columns:
+        df[col] = None
+        if col in ['GFTI_Score', 'SP_Numeric', 'Bond_Yield', 'Debt_GDP', 
+                   'GDP_Growth', 'Inflation', 'Trust_Tax_bps', 'Annual_Cost_1B']:
+            df[col] = 0
+
+# Add Model_Note column if it doesn't exist
+if 'Model_Note' not in df.columns:
+    df['Model_Note'] = ""
+
 # ============================================================================
 # SIDEBAR
 # ============================================================================
@@ -888,9 +929,9 @@ with st.sidebar:
     st.markdown("## Global Financial Transparency Index")
     st.markdown("---")
     
-    # CSV Upload Section
-    with st.expander("📤 Add New Countries via CSV"):
-        st.markdown("Upload a CSV file with new country data")
+        # CSV Upload Section - UPDATED with Replace on Match
+    with st.expander("📤 Add/Update Countries via CSV"):
+        st.markdown("Upload a CSV file to add new countries or update existing ones")
         
         # Template download
         template_csv = generate_csv_template()
@@ -902,25 +943,71 @@ with st.sidebar:
         )
         
         # File uploader
-        uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
+        uploaded_file = st.file_uploader("Choose a CSV file", type="csv", key="csv_uploader")
         
         if uploaded_file is not None:
             try:
                 new_data = pd.read_csv(uploaded_file)
-                st.write("Preview:")
+                st.write("Preview of uploaded data:")
                 st.dataframe(new_data.head())
                 
-                if st.button("Add to Database"):
-                    # Append to existing CSV
-                    csv_path = os.path.join(os.path.dirname(__file__), 'countries.csv')
-                    existing = pd.read_csv(csv_path)
-                    combined = pd.concat([existing, new_data], ignore_index=True)
-                    combined.to_csv(csv_path, index=False)
-                    st.success(f"✅ Added {len(new_data)} new countries!")
-                    st.cache_data.clear()  # Refresh the data
-                    st.rerun()
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("✅ Add/Update Countries", type="primary"):
+                        # Path to CSV file
+                        csv_path = os.path.join(os.path.dirname(__file__), 'countries.csv')
+                        
+                        # Read existing data
+                        if os.path.exists(csv_path):
+                            existing = pd.read_csv(csv_path)
+                        else:
+                            existing = pd.DataFrame()
+                        
+                        # Process each uploaded country
+                        updated_count = 0
+                        added_count = 0
+                        
+                        for _, new_row in new_data.iterrows():
+                            country_name = new_row['Country']
+                            
+                            if not existing.empty and country_name in existing['Country'].values:
+                                # Update existing country - remove old row and add new one
+                                existing = existing[existing['Country'] != country_name]
+                                existing = pd.concat([existing, pd.DataFrame([new_row])], ignore_index=True)
+                                updated_count += 1
+                            else:
+                                # Add new country
+                                existing = pd.concat([existing, pd.DataFrame([new_row])], ignore_index=True)
+                                added_count += 1
+                        
+                        # Save back to CSV
+                        existing.to_csv(csv_path, index=False)
+                        
+                        # Success message
+                        st.success(f"✅ Done! {updated_count} countries updated, {added_count} new countries added.")
+                        
+                        # Clear cache and rerun
+                        st.cache_data.clear()
+                        st.rerun()
+                
+                with col2:
+                    if st.button("⚠️ Replace ALL data", type="secondary"):
+                        # Warning confirmation
+                        st.warning("This will replace ALL existing data. Are you sure?")
+                        col_a, col_b = st.columns(2)
+                        with col_a:
+                            if st.button("Yes, replace everything"):
+                                csv_path = os.path.join(os.path.dirname(__file__), 'countries.csv')
+                                new_data.to_csv(csv_path, index=False)
+                                st.success("✅ Data replaced successfully!")
+                                st.cache_data.clear()
+                                st.rerun()
+                        with col_b:
+                            if st.button("Cancel"):
+                                st.rerun()
+                            
             except Exception as e:
-                st.error(f"Error reading CSV: {e}")
+                st.error(f"Error reading CSV: {e}") 
     
     # Filters
     st.markdown("### Filters")
@@ -1349,38 +1436,50 @@ if not filtered_df.empty:
         tab1, tab2, tab3 = st.tabs(["📊 Dashboard View", "📄 Full Country Report", "📥 Download Options"])
         
         with tab1:
+            # Display model note if it exists (FIXED: check if column exists and has value)
+            if 'Model_Note' in country.index and country['Model_Note'] and pd.notna(country['Model_Note']) and country['Model_Note'] != "":
+                st.warning(country['Model_Note'])
+            
             col1, col2, col3 = st.columns(3)
 
             with col1:
-                grade_color = get_grade_color(country['GFTI_Grade'])
+                grade_color = get_grade_color(country['GFTI_Grade']) if pd.notna(country['GFTI_Grade']) else "#666"
+                gfti_score = country['GFTI_Score'] if pd.notna(country['GFTI_Score']) else 0
+                gfti_grade = country['GFTI_Grade'] if pd.notna(country['GFTI_Grade']) else "N/A"
+                
                 st.markdown(f"""
                 <div class="card" style="border-left-color: {grade_color};">
                     <div class="metric-label">GFTI Score</div>
-                    <div class="metric-highlight">{country['GFTI_Score']:.0f}</div>
+                    <div class="metric-highlight">{gfti_score:.0f}</div>
                     <div style="background-color: {grade_color}; color: white; padding: 2px 8px; border-radius: 12px; display: inline-block;">
-                        Grade {country['GFTI_Grade']}
+                        Grade {gfti_grade}
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
 
             with col2:
-                trust_tax = country['Trust_Tax_bps']
+                trust_tax = country['Trust_Tax_bps'] if pd.notna(country['Trust_Tax_bps']) else 0
+                annual_cost = country['Annual_Cost_1B'] if pd.notna(country['Annual_Cost_1B']) else 0
                 tax_color = '#DC2626' if trust_tax > 0 else '#10B981' if trust_tax < 0 else '#666'
                 tax_sign = '+' if trust_tax > 0 else '' if trust_tax < 0 else ''
+                
                 st.markdown(f"""
                 <div class="card" style="border-left-color: {tax_color};">
                     <div class="metric-label">Trust Tax</div>
                     <div class="metric-highlight" style="color: {tax_color};">{tax_sign}{trust_tax:.0f} bps</div>
-                    <div>On $1B debt: ${country['Annual_Cost_1B']:.1f}M/year</div>
+                    <div>On $1B debt: ${annual_cost:.1f}M/year</div>
                 </div>
                 """, unsafe_allow_html=True)
 
             with col3:
+                bond_yield = country['Bond_Yield'] if pd.notna(country['Bond_Yield']) else 0
+                sp_rating = country['SP_Rating'] if pd.notna(country['SP_Rating']) else "N/A"
+                
                 st.markdown(f"""
                 <div class="card">
                     <div class="metric-label">Bond Yield</div>
-                    <div class="metric-highlight">{country['Bond_Yield']:.2f}%</div>
-                    <div>S&P Rating: {country['SP_Rating']}</div>
+                    <div class="metric-highlight">{bond_yield:.2f}%</div>
+                    <div>S&P Rating: {sp_rating}</div>
                 </div>
                 """, unsafe_allow_html=True)
 
@@ -1388,21 +1487,29 @@ if not filtered_df.empty:
             col1, col2, col3, col4 = st.columns(4)
 
             with col1:
-                st.metric("Debt/GDP", f"{country['Debt_GDP']:.1f}%")
+                debt_gdp = country['Debt_GDP'] if pd.notna(country['Debt_GDP']) else 0
+                st.metric("Debt/GDP", f"{debt_gdp:.1f}%")
             with col2:
-                st.metric("GDP Growth", f"{country['GDP_Growth']:.1f}%")
+                gdp_growth = country['GDP_Growth'] if pd.notna(country['GDP_Growth']) else 0
+                st.metric("GDP Growth", f"{gdp_growth:.1f}%")
             with col3:
-                st.metric("Inflation", f"{country['Inflation']:.1f}%")
+                inflation = country['Inflation'] if pd.notna(country['Inflation']) else 0
+                st.metric("Inflation", f"{inflation:.1f}%")
             with col4:
-                st.metric("Audit Opinion", country['Audit_Opinion'])
+                audit_opinion = country['Audit_Opinion'] if pd.notna(country['Audit_Opinion']) else "Unknown"
+                st.metric("Audit Opinion", audit_opinion)
 
             # Key findings
             st.markdown("### 📋 Key Findings")
+            key_issue = country['Key_Issue'] if pd.notna(country['Key_Issue']) else "No key issues identified"
+            soe = country['SOE_Consolidated'] if pd.notna(country['SOE_Consolidated']) else "Unknown"
+            pension = country['Pension_Recorded'] if pd.notna(country['Pension_Recorded']) else "Unknown"
+            
             st.markdown(f"""
             <div class="card" style="border-left-color: #DC2626;">
-                <strong>Primary Issue:</strong> {country['Key_Issue']}<br>
-                <strong>SOE Consolidation:</strong> {country['SOE_Consolidated']}<br>
-                <strong>Pension Liability:</strong> {country['Pension_Recorded']}
+                <strong>Primary Issue:</strong> {key_issue}<br>
+                <strong>SOE Consolidation:</strong> {soe}<br>
+                <strong>Pension Liability:</strong> {pension}
             </div>
             """, unsafe_allow_html=True)
 
@@ -1412,9 +1519,9 @@ if not filtered_df.empty:
             exp_data = pd.DataFrame({
                 'Metric': ['Actual Yield', 'Expected (Rating Only)', 'Expected (Rating + GFTI)'],
                 'Yield': [
-                    country['Bond_Yield'],
-                    country['Expected_Rating_Only'],
-                    country['Expected_Rating_GFTI']
+                    country['Bond_Yield'] if pd.notna(country['Bond_Yield']) else 0,
+                    country['Expected_Rating_Only'] if pd.notna(country['Expected_Rating_Only']) else 0,
+                    country['Expected_Rating_GFTI'] if pd.notna(country['Expected_Rating_GFTI']) else 0
                 ]
             })
 
@@ -1486,20 +1593,57 @@ if not filtered_df.empty:
                 'Value': [
                     country['Country'],
                     country['Region'],
-                    f"{country['GFTI_Score']:.0f}",
-                    country['GFTI_Grade'],
-                    country['SP_Rating'],
-                    f"{country['Bond_Yield']:.2f}%",
-                    f"{country['Trust_Tax_bps']:+.0f} bps",
-                    f"${country['Annual_Cost_1B']:.1f}M",
-                    f"{country['Debt_GDP']:.1f}%",
-                    f"{country['GDP_Growth']:.1f}%",
-                    f"{country['Inflation']:.1f}%",
-                    country['Audit_Opinion']
+                    f"{country['GFTI_Score']:.0f}" if pd.notna(country['GFTI_Score']) else "N/A",
+                    country['GFTI_Grade'] if pd.notna(country['GFTI_Grade']) else "N/A",
+                    country['SP_Rating'] if pd.notna(country['SP_Rating']) else "N/A",
+                    f"{country['Bond_Yield']:.2f}%" if pd.notna(country['Bond_Yield']) else "N/A",
+                    f"{country['Trust_Tax_bps']:+.0f} bps" if pd.notna(country['Trust_Tax_bps']) else "N/A",
+                    f"${country['Annual_Cost_1B']:.1f}M" if pd.notna(country['Annual_Cost_1B']) else "N/A",
+                    f"{country['Debt_GDP']:.1f}%" if pd.notna(country['Debt_GDP']) else "N/A",
+                    f"{country['GDP_Growth']:.1f}%" if pd.notna(country['GDP_Growth']) else "N/A",
+                    f"{country['Inflation']:.1f}%" if pd.notna(country['Inflation']) else "N/A",
+                    country['Audit_Opinion'] if pd.notna(country['Audit_Opinion']) else "N/A"
                 ]
             })
             
             st.dataframe(data_display, use_container_width=True, hide_index=True)
+            
+            
+            # ========================================================
+            # ADD THIS DELETE SECTION - RIGHT HERE
+            # ========================================================
+            st.markdown("---")
+            st.markdown("### 🗑️ Delete Country")
+            st.warning(f"⚠️ This will permanently delete **{selected_country}** from the database.")
+            
+            col1, col2, col3 = st.columns([1, 1, 2])
+            with col1:
+                delete_confirmation = st.checkbox("I understand this cannot be undone")
+            with col2:
+                if delete_confirmation:
+                    if st.button(f"🗑️ Delete {selected_country}", type="primary", use_container_width=True):
+                        # Path to CSV file
+                        csv_path = os.path.join(os.path.dirname(__file__), 'countries.csv')
+                        
+                        # Read existing data
+                        if os.path.exists(csv_path):
+                            existing = pd.read_csv(csv_path)
+                            
+                            # Remove the selected country
+                            existing = existing[existing['Country'] != selected_country]
+                            
+                            # Save back to CSV
+                            existing.to_csv(csv_path, index=False)
+                            
+                            # Success message
+                            st.success(f"✅ {selected_country} has been deleted.")
+                            
+                            # Clear cache and rerun
+                            st.cache_data.clear()
+                            st.rerun()
+                        else:
+                            st.error("Database file not found.")
+
 else:
     st.warning("No countries match the current filters. Try adjusting the filters in the sidebar.")
 
@@ -1546,7 +1690,7 @@ if not filtered_df.empty:
         )
 
 # ============================================================================
-# TRUST TAX CALCULATOR
+# TRUST TAX CALCULATOR - Using same simplified model
 # ============================================================================
 st.markdown('<div class="sub-header">🧮 Trust Tax Calculator</div>', unsafe_allow_html=True)
 st.markdown("""
@@ -1556,6 +1700,11 @@ Calculate the cost of opacity for any country. Enter a country's S&P rating and 
 - Expected yield with transparency factored in
 - The Trust Tax (difference from actual yield)
 - Annual cost on $1B of debt
+
+*Note: This calculator uses a simplified model:*
+- *Base expected yield = 3.0% + (S&P numeric rating × 0.25%)*
+- *Transparency adjustment = ((50 - GFTI score) × 0.02%) (2bps per point)*
+- *For developed markets, actual yields are heavily influenced by central bank rates and inflation*
 """)
 
 col1, col2, col3 = st.columns(3)
@@ -1563,104 +1712,178 @@ col1, col2, col3 = st.columns(3)
 with col1:
     calc_country = st.text_input("Country Name", "New Country")
 with col2:
-    # Get unique ratings, filter out None/NaN
-    valid_ratings = df['SP_Rating'].dropna().unique()
-    calc_rating = st.selectbox("S&P Rating", sorted(valid_ratings))
+    # Get unique ratings and their corresponding numeric values from the actual data
+    rating_options = df[['SP_Rating', 'SP_Numeric']].dropna().drop_duplicates().sort_values('SP_Numeric')
+    
+    # Create a display format that shows both rating and its numeric value
+    rating_display = [f"{row['SP_Rating']} (num: {int(row['SP_Numeric'])})" 
+                      for _, row in rating_options.iterrows()]
+    
+    selected_display = st.selectbox("S&P Rating", rating_display)
+    
+    # Extract the actual rating and its numeric value from the selection
+    calc_rating = selected_display.split(' (num:')[0]
+    rating_num = int(selected_display.split('num: ')[1].rstrip(')'))
+    
 with col3:
     calc_gfti = st.slider("GFTI Score", 0, 100, 50)
 
-# Calculate
-rating_map = {
-    'AAA': 1, 'AA+': 2, 'AA': 3, 'AA-': 4,
-    'A+': 5, 'A': 6, 'A-': 7,
-    'BBB+': 8, 'BBB': 9, 'BBB-': 10,
-    'BB+': 11, 'BB': 12, 'BB-': 13,
-    'B+': 14, 'B': 15, 'B-': 16,
-    'CCC+': 17, 'CCC': 18, 'CCC-': 19,
-    'CC': 20, 'C': 21, 'D': 22
-}
+# Step 1: Expected yield based on S&P rating only (using same formula as main model)
+exp_rating_only = 3.0 + (rating_num * 0.25)
 
-rating_num = rating_map.get(calc_rating, 14)
-exp_rating = 2.5 + (rating_num * 0.35)
-gfti_adjust = ((50 - calc_gfti) * 0.05)  # 5bps per point adjustment
-exp_gfti = exp_rating + gfti_adjust
+# Step 2: Adjust for transparency (GFTI score) - 2bps per point
+gfti_adjustment = ((50 - calc_gfti) * 0.02)
 
-# For the calculator, we need an assumed actual yield to compute Trust Tax
-# Let's use exp_rating as a placeholder
-assumed_actual = exp_rating  # This would be replaced with real data
-trust_tax_calc = assumed_actual - exp_gfti
-trust_tax_bps_calc = trust_tax_calc * 100
+# Step 3: Expected yield incorporating transparency
+exp_rating_gfti = exp_rating_only + gfti_adjustment
 
+# Display the three-step calculation
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
-    st.metric("Expected (Rating Only)", f"{exp_rating:.2f}%")
+    st.metric(
+        "Step 1: Expected (Rating Only)", 
+        f"{exp_rating_only:.2f}%",
+        help=f"3.0% + ({rating_num} × 0.25%)"
+    )
 
 with col2:
-    st.metric("Transparency Adjustment", f"{gfti_adjust:+.2f}%", 
-              help="Positive = Penalty for poor transparency, Negative = Reward for good transparency")
+    st.metric(
+        "Step 2: Transparency Adjustment", 
+        f"{gfti_adjustment:+.2f}%", 
+        help="Positive = Penalty for poor transparency, Negative = Reward for good transparency"
+    )
 
 with col3:
-    st.metric("Expected (Rating + GFTI)", f"{exp_gfti:.2f}%")
+    st.metric(
+        "Step 3: Expected (Rating + GFTI)", 
+        f"{exp_rating_gfti:.2f}%",
+        help="Step 1 + Step 2"
+    )
 
 with col4:
-    # Show the Trust Tax based on the default yield
-    default_yield = 5.0
-    default_trust_tax = default_yield - exp_gfti
-    st.metric(
-        "Trust Tax (vs 5% yield)",
-        f"{default_trust_tax:+.2f}%",
-        delta=None,
-        help="Trust Tax if actual yield were 5%"
-    )
+    # Find countries with similar rating to show typical range
+    similar_countries = df[df['SP_Rating'] == calc_rating]['Bond_Yield'].dropna()
+    if not similar_countries.empty:
+        typical_yield = similar_countries.mean()
+        st.metric(
+            "Typical Actual Yield",
+            f"{typical_yield:.2f}%",
+            help=f"Average actual yield for {calc_rating}-rated countries"
+        )
+    else:
+        st.metric("Typical Actual Yield", "N/A")
 
 st.markdown("### Enter Actual Bond Yield to Calculate Trust Tax")
 col1, col2 = st.columns(2)
 with col1:
+    default_yield = typical_yield if 'typical_yield' in locals() and not pd.isna(typical_yield) else exp_rating_only
     actual_yield_input = st.number_input(
         "Actual Bond Yield (%)", 
         min_value=0.0, 
         max_value=30.0, 
-        value=exp_rating,  # Use the rating-based expected yield as default
+        value=round(default_yield, 2),
         step=0.1, 
         format="%.2f",
         key="actual_yield_calc"
     )
 
-# Calculate and display results
-trust_tax_calc = actual_yield_input - exp_gfti
-trust_tax_bps_calc = trust_tax_calc * 100
-annual_cost = abs(trust_tax_bps_calc / 100 * 10)
+# Calculate Trust Tax
+trust_tax_pct = actual_yield_input - exp_rating_gfti
+trust_tax_bps = trust_tax_pct * 100
+annual_cost = abs(trust_tax_bps / 100 * 10)  # $10M per 100bps on $1B
 
-# Display results in columns
+# Display results
+st.markdown("### 📊 Trust Tax Calculation Results")
+
+# Show the calculation visually
+calc_df = pd.DataFrame({
+    'Component': ['Actual Yield', 'Expected Yield (Rating + GFTI)', 'Trust Tax'],
+    'Value': [f"{actual_yield_input:.2f}%", f"{exp_rating_gfti:.2f}%", f"{trust_tax_pct:+.2f}%"]
+})
+st.dataframe(calc_df, use_container_width=True, hide_index=True)
+
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    tax_color = "#DC2626" if trust_tax_calc > 0 else "#10B981" if trust_tax_calc < 0 else "#666"
-    st.markdown(f"<h3 style='color: {tax_color};'>{trust_tax_calc:+.2f}%</h3>", unsafe_allow_html=True)
-    st.caption("Trust Tax (%)")
+    tax_color = "#DC2626" if trust_tax_pct > 0 else "#10B981" if trust_tax_pct < 0 else "#666"
+    st.markdown(f"""
+    <div style="text-align: center; padding: 20px; border-radius: 10px; background-color: {tax_color}20; border-left: 4px solid {tax_color};">
+        <div style="font-size: 0.9rem; color: #666;">Trust Tax</div>
+        <div style="font-size: 2.5rem; font-weight: bold; color: {tax_color};">{trust_tax_pct:+.2f}%</div>
+    </div>
+    """, unsafe_allow_html=True)
 
 with col2:
-    st.markdown(f"<h3 style='color: {tax_color};'>{trust_tax_bps_calc:+.0f} bps</h3>", unsafe_allow_html=True)
-    st.caption("Trust Tax (basis points)")
+    st.markdown(f"""
+    <div style="text-align: center; padding: 20px; border-radius: 10px; background-color: #f8f9fa; border-left: 4px solid {tax_color};">
+        <div style="font-size: 0.9rem; color: #666;">Trust Tax (basis points)</div>
+        <div style="font-size: 2.5rem; font-weight: bold; color: {tax_color};">{trust_tax_bps:+.0f} bps</div>
+    </div>
+    """, unsafe_allow_html=True)
 
 with col3:
-    st.markdown(f"<h3>${annual_cost:.1f}M</h3>", unsafe_allow_html=True)
-    st.caption("Annual Cost on $1B Debt")
+    cost_color = "#DC2626" if trust_tax_bps > 0 else "#10B981"
+    st.markdown(f"""
+    <div style="text-align: center; padding: 20px; border-radius: 10px; background-color: #f8f9fa; border-left: 4px solid {cost_color};">
+        <div style="font-size: 0.9rem; color: #666;">Annual Cost on $1B Debt</div>
+        <div style="font-size: 2.5rem; font-weight: bold; color: {cost_color};">${annual_cost:.1f}M</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-# Interpretation card
+# Formula verification
+st.markdown("### ✅ Formula Verification")
+st.markdown(f"""
+Step 1: Expected (Rating Only) = 3.0% + ({rating_num} × 0.25%) = {exp_rating_only:.2f}%
+Step 2: Transparency Adjustment = (50 - {calc_gfti}) × 0.02% = {gfti_adjustment:+.2f}%
+Step 3: Expected (Rating + GFTI) = {exp_rating_only:.2f}% + {gfti_adjustment:+.2f}% = {exp_rating_gfti:.2f}%
+Step 4: Trust Tax = {actual_yield_input:.2f}% - {exp_rating_gfti:.2f}% = {trust_tax_pct:+.2f}% ({trust_tax_bps:+.0f} bps)
+""")
+
+# Check if this is a developed market and add context
+is_developed = False
+if calc_country != "New Country":
+    country_match = df[df['Country'].str.contains(calc_country, case=False, na=False)]
+    if not country_match.empty and country_match.iloc[0]['Region'] in ['Europe', 'North America', 'Pacific']:
+        is_developed = True
+
+# Interpretation card with contextual note
+if is_developed and calc_gfti > 70:
+    st.info("""
+    **⚠️ Note for developed markets:** 
+    This country's bond yield is significantly influenced by central bank rates, inflation expectations, 
+    and safe-haven demand. The Trust Tax shown here may reflect these broader economic factors 
+    rather than just transparency. Use this as a directional indicator, not an exact measure.
+    """)
+
 st.markdown(f"""
 <div class="card" style="text-align: center;">
-    <h4>Interpretation:</h4>
+    <h4>📈 Interpretation:</h4>
     <p>
-    <strong>{'+' if trust_tax_calc > 0 else '-' if trust_tax_calc < 0 else 'No '}Trust Tax</strong><br>
-    {f'This country pays <span style="color: #DC2626;">{trust_tax_bps_calc:.0f} bps MORE</span> than its transparency suggests.' if trust_tax_calc > 0 else 
-      f'This country pays <span style="color: #10B981;">{abs(trust_tax_bps_calc):.0f} bps LESS</span> than its transparency suggests.' if trust_tax_calc < 0 else 
+    <strong>{'+' if trust_tax_pct > 0 else '-' if trust_tax_pct < 0 else 'No '}Trust Tax Detected</strong><br>
+    {f'This country pays <span style="color: #DC2626; font-weight: bold;">{trust_tax_bps:+.0f} bps MORE</span> than its transparency suggests.' if trust_tax_pct > 0 else 
+      f'This country pays <span style="color: #10B981; font-weight: bold;">{abs(trust_tax_bps):.0f} bps LESS</span> than its transparency suggests.' if trust_tax_pct < 0 else 
       'This country pays exactly what its transparency suggests.'}
     </p>
-    <p><em>Note: This is a preliminary model using 5bps per GFTI point adjustment from the 50-point baseline.</em></p>
+    <p style="font-size: 0.9rem; color: #666;">
+        <strong>If this country borrowed $1 billion:</strong><br>
+        {'❌ They would pay' if trust_tax_pct > 0 else '✅ They would save'} <strong>${annual_cost:.1f} million</strong> per year in interest
+        {' due to the transparency penalty.' if trust_tax_pct > 0 else ' due to transparency rewards.' if trust_tax_pct < 0 else '.'}
+    </p>
+    <hr>
+    <p><em>Note: This simplified model uses 2bps per GFTI point adjustment from the 50-point baseline. For developed markets, other factors dominate.</em></p>
 </div>
 """, unsafe_allow_html=True)
+
+# Show comparison with actual countries of similar rating
+if not similar_countries.empty:
+    st.markdown("### 📊 Comparison with Actual Countries")
+    similar_data = df[df['SP_Rating'] == calc_rating][['Country', 'Region', 'GFTI_Score', 'Bond_Yield', 'Trust_Tax_bps']].copy()
+    similar_data = similar_data.dropna(subset=['Bond_Yield'])
+    if not similar_data.empty:
+        similar_data['GFTI_Score'] = similar_data['GFTI_Score'].fillna(0).astype(int)
+        similar_data.columns = ['Country', 'Region', 'GFTI Score', 'Actual Yield %', 'Trust Tax (bps)']
+        st.dataframe(similar_data, use_container_width=True, hide_index=True)
 
 # ============================================================================
 # DATA QUALITY ISSUES
@@ -1713,7 +1936,8 @@ st.markdown("""
 <div style="text-align: center; color: #666; font-size: 0.9rem; padding: 20px;">
     <p><strong>GFTI: Global Financial Transparency Index</strong></p>
     <p>Data based on audited financial statements and market yields as of 2023-2025</p>
-    <p>⚠️ Trust Tax calculation uses preliminary model: 5bps per GFTI point adjustment from 50-point baseline</p>
+    <p>⚠️ <strong>Model note:</strong> Trust Tax uses a simplified model: 3.0% base + 0.25% per rating notch + 2bps per GFTI point adjustment. 
+    For developed markets, actual yields are heavily influenced by central bank policies and inflation.</p>
     <p>📥 Country reports can be downloaded in TXT format for each nation</p>
     <p>🗺️ Interactive map shows GFTI scores globally - click any country for details</p>
 </div>
